@@ -702,7 +702,12 @@ confirmation dialog. The full pipeline is hookable via
 
 Iframes forward OS drops to the parent shell via
 `postMessage` of type `os-file-drop` with a
-`{ files: File[], x, y }` payload — same-origin only.
+`{ files: File[], x, y }` payload — same-origin only. A drop
+that lands on a native `<input type="file">`, or anywhere on
+Core's `form.wp-upload-form` box around one (Upload Plugin,
+Upload Theme), is handed to that input instead and never
+reaches the shell — see
+[`bridge-protocol.md`](bridge-protocol.md#os-file-drop-forwarder--os-file-drop).
 
 See [`docs/examples/os-file-drop.md`](examples/os-file-drop.md)
 for two end-to-end recipes (stamping the active folder on
@@ -3890,6 +3895,8 @@ See [`docs/examples/connect-to-window.md`](./examples/connect-to-window.md) for 
 ### `registerSettingsTab( def )` — Stable
 
 Register a tab in the OpenStation Preferences window. The tab is appended (or sorted-in by `order`) alongside the built-in tabs — Appearance, Themes, Windows, Navigation, Features, Components, About — and renders its body via your `render( body, ctx )` callback.
+
+The sidebar search filters pages using rendered text and component labels. Preferences picks a single best matching control across the rendered pages, opens its page, and highlights the sidebar entry, enclosing `<os-section>`, and control. Control labels rank above option text, section headings, and descriptions; exact text ranks above prefixes and substrings. Ties use page order, so even a broad query highlights only one control. Clearing the query removes the highlight. For searchable plugin controls, use the kit's labelled form controls inside `<os-section heading="…" description="…">`; these attributes remain searchable even though the kit renders them in shadow DOM. Hidden controls and preserved component-demo subtrees are excluded from control highlighting.
 
 **Definition shape:**
 
