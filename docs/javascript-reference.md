@@ -3083,7 +3083,7 @@ window.wp.os.listDestructiveAdminActions().forEach( ( e ) => console.log( e.id )
 
 Programmatic access to the AI Copilot — same endpoint the built-in overlay talks to. Resolves to an `AskResult`; rejects on network errors, HTTP failures, or abort.
 
-The built-in content tools (`search_posts`, `search_pages`, `search_comments`, `search_comments_by_post`) run WordPress's native keyword search — the model derives a `query` from the user's request and the tools return matching titles + excerpts. (Posts, pages, and terms are no longer pre-analyzed; comment spam scoring is the only automatic AI analysis.) When you continue an exhausted search with `resumeTool` / `startOffset`, the original query is reused automatically.
+The built-in content tools (`search_posts`, `search_pages`, `search_comments`, `search_comments_by_post`) run WordPress's native keyword search — the model derives a `query` from the user's request and the tools return matching titles + excerpts. (Nothing is pre-analyzed: posts, pages, comments and terms are never analyzed in the background.) When you continue an exhausted search with `resumeTool` / `startOffset`, the original query is reused automatically.
 
 Results are scoped to what the requesting user may read. The comment tools drop every comment whose parent post the caller cannot access (private, draft, or password-protected parents, and non-viewable post types), and `search_comments_by_post` returns an empty batch — without the parent title — when the target post itself is unreadable. As in Core's comments REST controller, this filtering happens per row after the query, so a batch can carry fewer items than `total` implies; treat `total` / `has_more` as pagination hints, not as an exact count of readable matches. The final `entity` record applies the same readability check to the model-chosen id, resolving unreadable entities to `null` exactly like nonexistent ones.
 
@@ -5708,7 +5708,7 @@ The built-in Snow wallpaper (`src/plugins/snow-wallpaper/`) is the canonical in-
 | `registerWallpaper( def )` | Stable | Add a wallpaper to the registry + re-apply |
 | `registerWidget( def )` | Stable | Add a widget to the registry |
 | `registerSystemTile( item )` | Stable | Add a JS-owned launcher tile to the bottom dock rail, alongside plugin admin menus. Returns nothing; fires `os.dock.item-appended`. See "System tiles" below. |
-| `loadVendorScript( url, extras? )` | Stable | Memoized `<script>` injector. Low-level; most plugins use `needs` instead. Never re-executes something the document already ran — pass `extras.handle` whenever you know the WP script handle, since a Core package delivered inside a `load-scripts.php` concat blob has no `<script src>` of its own to match on. |
+| `loadVendorScript( url, extras? )` | Stable | Memoized `<script>` injector. Low-level; most plugins use `needs` instead. Never re-executes something the document already ran — pass `extras.handle` whenever you know the WP script handle, since a Core package delivered inside a `load-scripts.php` concat blob has no `<script src>` of its own to match on. `extras.deps` is an ordered dependency list loaded first; an entry with an empty `url` is a src-less alias whose inline data is replayed in print order, once per document. |
 | `getWallpaperSurfaces()` | Stable | Live `WallpaperSurface[]` for collision-aware wallpapers. See "Wallpaper surfaces" below. |
 | `registerModule( def )` | Stable | Register a shared vendor library under a stable id. |
 | `loadModules( ids )` | Stable | Imperatively load registered modules. Usually unnecessary — canvas wallpapers declare `needs[]` and the shell resolves. |
@@ -8047,3 +8047,7 @@ first in-page navigation. See
 - [Examples — Window controls](./examples/window-controls.md)
 - [Examples — Window slots](./examples/window-slot.md)
 - [Examples — Custom window chrome (Experimental)](./examples/custom-chrome.md)
+
+## `os-split-change` — Stable
+
+`<os-split>` emits a bubbling, composed CustomEvent after a committed pointer or keyboard resize, with `detail: { position: number }`. Position is the start pane percentage of usable space, excluding the divider. Programmatic attributes, automatic resizing and cancelled drags emit no event. The App Framework accepts `os-on="os-split-change"` and treats it as the natural `os-split` event; actions receive `position`. The component does not persist layout. See [app layout recipes](./examples/app-layouts.md) for keyboard behavior, bounds and responsive panes.

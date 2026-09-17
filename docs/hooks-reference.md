@@ -2263,7 +2263,7 @@ Credentials and model routing are owned by **WordPress 7.0 Core**: configure a p
 
 > The built-in Copilot tools are [WordPress Abilities](https://developer.wordpress.org/apis/abilities-api/), listed at `GET /wp-abilities/v1/abilities`. Register a read-only ability and the assistant picks it up automatically — see "Extending the Copilot's tools" below.
 
-> **Removed.** Automatic AI analysis of posts, pages, and taxonomy terms was removed — the copilot now only analyzes comments (for the spam score), and the AI assistant finds content with WordPress's native keyword search. The following filters/actions no longer fire and have been removed: `openstation_ai_supported_post_types`, `openstation_ai_supported_taxonomies`, `openstation_ai_supported_types`, `openstation_ai_schema_content`, `openstation_ai_post_prompt`, `openstation_ai_term_prompt`, `openstation_ai_post_analyzed`, `openstation_ai_term_analyzed`.
+> **Removed.** Automatic AI analysis of posts, pages, and taxonomy terms was removed — the copilot performs no background analysis (automatic comment scoring was removed later, see [`migration-comments-ai-scoring.md`](./migration-comments-ai-scoring.md)), and the AI assistant finds content with WordPress's native keyword search. The following filters/actions no longer fire and have been removed: `openstation_ai_supported_post_types`, `openstation_ai_supported_taxonomies`, `openstation_ai_supported_types`, `openstation_ai_schema_content`, `openstation_ai_post_prompt`, `openstation_ai_term_prompt`, `openstation_ai_post_analyzed`, `openstation_ai_term_analyzed`.
 
 ### `openstation_ai_schema_comment` — Experimental
 
@@ -2728,7 +2728,7 @@ if ( is_wp_error( $result ) ) {
 
 > **`style`.** Optional `wp_register_style()` handle. The shell resolves it to a `styleUrl` (and any `wp_add_inline_style()` blobs) and lazy-injects a `<link rel="stylesheet">` when the window's plugin is activated mid-session. Without `style`, a peer plugin activated from inside an open shell renders its window with **no CSS** until the user reloads — the parent shell already finished `wp_print_styles` before the plugin existed. If the handle isn't registered, the field is silently dropped (no error, no link); plugins active at boot continue to print through the normal `wp_print_styles` pipeline as before.
 
-> **`script` loads on first open.** The shell reads your render callback off `window.openStationNativeWindows[ <id> ]` *after* fetching the bundle, so nothing is required of you: register the handle, publish the callback, and the window works. What changes is *when* — a bundle is no longer printed on every admin page for a window the user may never open. `wp_localize_script` / `wp_add_inline_script` / `wp_set_script_translations` data is harvested off the registered handle into the payload and replayed around the injected `<script>` tag, so it arrives either way.
+> **`script` loads on first open.** The shell reads your render callback off `window.openStationNativeWindows[ <id> ]` *after* fetching the bundle, so nothing is required of you: register the handle, publish the callback, and the window works. What changes is *when* — a bundle is no longer printed on every admin page for a window the user may never open. `wp_localize_script` / `wp_add_inline_script` / `wp_set_script_translations` data is harvested off the registered handle into the payload and replayed around the injected `<script>` tag, so it arrives either way. So are the handle's **declared dependencies**: the closure WordPress would have resolved had it printed the handle is shipped with the window and loaded, in order, before the bundle — `wp-*` packages and your own handles alike, skipping anything the document already ran. A src-less alias (`wp_register_script( 'acme-config', false )` carrying your config through `wp_add_inline_script()`, declared as the bundle's dependency) has its inline data replayed in print order with nothing fetched. Declare what you use and it works on a live activation exactly as it does after a reload; see [`docs/migration-wp-package-globals.md`](./migration-wp-package-globals.md).
 >
 > **`scripts`** *(optional, `string[]`)* — companion handles loaded in order immediately **before** `script`. For a bundle that extends the window from outside it — subscribing to actions the window's own bundle fires, contributing a section — and therefore has to be listening before that bundle is parsed. Declaring it here is what keeps it off the boot critical path: it travels with the window it extends. Handles that were never registered are dropped silently, the same way `style` is.
 >
@@ -3591,22 +3591,6 @@ do_action( 'openstation_comments_window_after_bulk', string $action, int[] $proc
 ```
 
 Fires after a moderation batch finishes — from `/desktop-mode/v1/comments/bulk` and from the app's `moderate` action alike, since both run `openstation_comments_window_moderate()`. `$action` is one of `approve|unapprove|spam|unspam|trash|untrash`. `$processed` is the list of ids successfully acted on; `$skipped` is the list that failed a per-target cap or soft error.
-
-### `openstation_comments_ai_is_enabled` — Experimental *(filter)*
-
-```php
-apply_filters( 'openstation_comments_ai_is_enabled', bool $enabled ): bool
-```
-
-Whether AI moderation for new comments is enabled. Site-wide, not per-user — hooks here override the `desktop_mode_comments_ai_moderation` site option, which is useful for gating by environment (staging vs. production) or by feature flag.
-
-### `openstation_comments_ai_toggled` — Experimental *(action)*
-
-```php
-do_action( 'openstation_comments_ai_toggled', bool $enabled );
-```
-
-Fires after the Comments AI moderation toggle is changed via `POST /desktop-mode/v1/comments/ai-settings`. `$enabled` is the new state.
 
 ---
 
