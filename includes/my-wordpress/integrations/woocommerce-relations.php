@@ -1157,11 +1157,9 @@ function openstation_my_wordpress_woo_related_entities( $related, $identity, $sc
 /**
  * Name the order-edit window after the order it shows.
  *
- * @param string $hook_suffix Current admin page hook suffix (unused).
  * @return void
  */
-function openstation_my_wordpress_woo_order_window_title( $hook_suffix ) {
-	unset( $hook_suffix );
+function openstation_my_wordpress_woo_order_window_title() {
 	if ( ! openstation_my_wordpress_woo_active() || ! openstation_my_wordpress_woo_can_read_orders() ) {
 		return;
 	}

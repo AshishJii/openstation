@@ -140,7 +140,7 @@ class Tests_OpenStation_MyWordpressWoocommerceCustomers extends WP_UnitTestCase 
 	 */
 	public function test_order_window_title_prints_nothing_without_woocommerce() {
 		ob_start();
-		openstation_my_wordpress_woo_order_window_title( 'index.php' );
+		openstation_my_wordpress_woo_order_window_title();
 		$html = (string) ob_get_clean();
 
 		$this->assertSame( '', $html );
