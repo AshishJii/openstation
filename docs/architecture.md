@@ -14,7 +14,7 @@ locations remain authoritative.
 | Layer | Location | Status |
 |---|---|---|
 | `tsconfig` path aliases (`@core/*`, `@api/*`, `@protocol/*`, `@ui/*`, `@layout/*`, `@boot/*`, `@features/*`, `@window-system/*`) | `tsconfig.json` + `vite.config.js` + `vitest.config.ts` | Stable |
-| Generic reactive registry + server-sync + REST client primitives | `src/core/{reactive-registry,server-sync,api-client}.ts` | Stable |
+| Generic reactive registry + server-sync + REST client primitives. Every REST client whose failure reaches the user throws `RestError` from `api-client.ts` (the users-profile client and a few loaders that only flip a boolean error state still throw a fixed string) (status, `WP_Error` code, data, the server's message): the notes and desktop-files clients are `createFeatureClient()` with a console prefix and a conflict shape each, a `trackedFetch` caller uses `restErrorFromResponse()`, a caller that already parsed the body uses `restErrorFromBody()`. `src/core/rest-failure.ts` turns one into the sentence a toast or notice shows, and `toastRestFailure()` is the one way a failure becomes a toast: the server's own message for a refusal, a line of its own for offline, an expired session or an unreadable reply, the surface's generic line plus the status for a 5xx. | `src/core/{reactive-registry,server-sync,api-client,rest-failure}.ts` | Stable |
 | PHP registry factory | `includes/core/registry-factory.php` | Stable |
 | Bridge protocol (typed messages + guards + version) | `src/protocol/{window-messages,guards,version}.ts` | Stable |
 | Public API barrel + deprecation alias helper | `src/api/{index,deprecated}.ts` | Stable |
@@ -112,6 +112,12 @@ State lives in a `createSharedStore` because this module compiles into both the 
 
 The Plugins app keeps its own faster path (the self-deactivate check in `apps/plugins/`), since it knows which plugin the user just acted on.
 
+### The deactivation feedback dialog
+
+Before OpenStation is deactivated, one optional question. Three surfaces show it and all three post to the same `POST /desktop-mode/v1/feedback/deactivation` route: the classic `plugins.php` (the primary surface, since the sites we most need to hear from never opened the shell), the same page in a chromeless window, and the native Plugins app, which lazy-loads the bundle before a self-deactivate (`askBeforeSelfDeactivate()` in `apps/plugins/parts/mutations.ts`). One plain-DOM renderer (`src/deactivation-feedback/`) serves all three, because the classic screen has no `<os-*>` kit.
+
+The browser posts to the site and the site forwards to the intake (`includes/feedback/`): a small WordPress plugin on openstation.blog, the host the About tab already reads, which stores each submission in a table read from that site's wp-admin. Not browser-direct: ad blockers drop third-party telemetry hosts, the intake then sees the server's IP rather than the person's, and the payload is assembled in PHP where a host can filter it or turn the feature off. The forward is synchronous, three seconds at most, and best-effort — the plugin is about to be deactivated, so no cron callback of ours would ever run. Nothing is stored on the site. The payload has no site id and no URL hash; `readme.txt` lists every field, and the PHPUnit suite pins that list.
+
 ## Navigation
 
 Everything the shell can put in front of you — WordPress's admin menus, plugin menus, installed apps, OpenStation's own controls — is one flat list of **nav items**, and where each one shows up is a pure function of what it IS plus the user's preference. The model lives in `src/nav/`; `computeNav()` is the whole specification, and every surface renders what it returns.
@@ -125,7 +131,7 @@ A nav item has a **kind**, and the kind decides everything the user has not over
 | `core` | An admin menu WordPress registered (`openstation_is_core_menu_slug()`) | a rail |
 | `plugin` | An admin menu a plugin registered | a rail |
 | `app` | `openstation_register_icon()`, or a native window's launcher | the desktop |
-| `control` | OpenStation's own affordances: Mio, Overview, System, Trash, Exit | a rail |
+| `control` | OpenStation's own affordances: Mio, Workspaces, System, Trash, Exit | a rail |
 
 Placement is stored as a subset of two **regions**, never as a rail name: `'rail' | 'desktop' | 'both' | 'hidden'`. Which physical rail `'rail'` resolves to is one line (`railFor()` in `src/nav/defaults.ts`): the sidebar for a `core` menu while the split layout is on, the dock for everything else. That indirection is why switching layouts is a re-render rather than a data migration, and why OpenStation Preferences can offer four options rather than five while still naming the rail the user is actually looking at.
 
@@ -248,6 +254,8 @@ Two further pieces the boot config deliberately does NOT carry, because the boot
 Keying the data by handle is also what keeps **shared bundles** correct (every App Framework window rides the one `openstation-app-runtime` handle, with its own client view as a companion): script data is a property of the handle, not of the window, so one map entry serves however many windows name it — where the old inline shape serialized the same blobs once per window (~100 KB of the boot payload was that repetition). The synthesized `openStationWindowConfig[ id ]` assignments group into the handle's `l10n` for the same reason: the shell fetches a URL once, and a bundle can serve one window from inside another, so whichever entry loads the bundle must deliver the whole handle's config set. On the client, the script *tag* dedupes by URL but each entry's inline data is replayed on that entry's own first open regardless — the second window onto an already-loaded bundle still gets its data injected before its render callback runs.
 
 **Deduping by URL alone is not enough for Core packages**, which is what a lazily-delivered bundle's dependency closure is made of. Core concatenates everything below `wp-includes/js/` and `wp-admin/js/` into a single `load-scripts.php` response — on by default in wp-admin, off under `SCRIPT_DEBUG` or an explicit `CONCATENATE_SCRIPTS = false`, which is why no developer environment shows this — so `wp-hooks` and its neighbours are in the tab with no `<script src>` carrying their path. A path-only presence test therefore answered "absent", the loader appended the file, and re-executing it assigned a *fresh registry* to `window.wp.hooks`: every subscriber the shell installed at boot went deaf while the actions kept firing on the new one, and every window sat under its loading overlay. A blob is not opaque, though — it names the handles it carries in its own query string, because that is how `load-scripts.php` knows what to serve. `src/script-presence.ts` reads them back and answers `isScriptInDocument( { url, handle } )` from both signals; every payload that ships a script URL ships its handle alongside for exactly this reason, and that is why `handle` on a `scriptDeps` entry or a `commandPalette.scripts` entry is load-bearing rather than informational.
+
+**`scriptDeps` travel as handles.** A dependency's payload (URL, l10n, before/after, translations) is the same wherever it is declared, so the shell payload carries it once, in `scriptDepPayloads` keyed by handle, and every entry's `scriptDeps` is a list of handles (`openstation_compact_script_deps()`, run on the finished boot config and menu-refresh payload). `src/script-dep-payloads.ts` resolves them back to full objects, in order, at boot and at the top of every menu refresh, so every loader and `isScriptInDocument()` sees the shape it always did. Before this, a plugin's 5.5 KB localized object on a script its 27 commands and 11 widgets shared came to ~400 KB of a 489 KB `openStationConfig` (GH#892).
 
 The `'config'` arg on `openstation_register_window()` ships through the same delivery path and is the recommended way to pass session-bound data to a bundle. See [`docs/examples/window-with-config.md`](./examples/window-with-config.md).
 
@@ -556,7 +564,10 @@ compensating controls are the explicit allowlist set by an
 **The runner** (`includes/agents/runner.php`) generates through the
 same Core AI Client adapter the Copilot uses
 (`openstation_ai_client_generate()` over `wp_ai_client_prompt()`),
-loops tool calls to a hard 8-turn cap, and runs the whole loop with
+loops tool calls to a hard 8-turn cap (stopping early after three
+consecutive turns in which every tool call failed identically, since a
+model that did not fix its call on the third try will not on the
+eighth), and runs the whole loop with
 `wp_set_current_user()` switched to the agent (restored in `finally`)
 so permission callbacks see the agent's role, not the human caller.
 Per-agent hourly rate limits ride a transient counter.

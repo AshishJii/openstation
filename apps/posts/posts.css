@@ -18,6 +18,16 @@
 	min-width: 0;
 }
 
+/* The editor embedded in the "Add New" tab — `wp.os.embedAdminPage()`
+ * puts a full-size iframe in here, so the host has to be the panel's
+ * whole box rather than shrink to a zero-height child. */
+.os-posts__embed-host {
+	display: flex;
+	flex: 1 1 auto;
+	min-height: 0;
+	min-width: 0;
+}
+
 /* ---------------------------------------------------------------
  * The term canvas: a toolbar across the top, the Pixi stage on the
  * left, a fixed-width sidebar editor on the right. The Pixi side
@@ -125,14 +135,14 @@
 
 .os-term-canvas__btn--primary {
 	background: var( --wp-admin-theme-color, #2271b1 );
-	color: var( --os-ui-fg-on-accent, #fff );
+	color: var( --os-ui-accent-ink, var( --os-ui-fg-on-accent, #fff ) );
 	border-color: transparent;
 }
 
 .os-term-canvas__btn--primary:hover {
 	filter: brightness( 1.05 );
 	background: var( --wp-admin-theme-color, #2271b1 );
-	color: var( --os-ui-fg-on-accent, #fff );
+	color: var( --os-ui-accent-ink, var( --os-ui-fg-on-accent, #fff ) );
 }
 
 .os-term-canvas__btn--secondary {

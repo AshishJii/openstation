@@ -160,6 +160,7 @@ import {
 } from './bug-report';
 import { ensureDeferredStyle } from './deferred-styles';
 import { showToast, type ToastOptions } from './toast';
+import { restErrorFromResponse } from './core/api-client';
 import { __, sprintf } from './i18n';
 import {
 	bootstrapPwa,
@@ -327,6 +328,7 @@ import {
 import { openCreateFolderDialog } from './desktop-files/create-folder-dialog';
 import { openUrlDialog } from './desktop-files/overlays-loader';
 import { installFileDropSentinel } from './os-file-drop/sentinel';
+import { hydrateScriptDeps } from './script-dep-payloads';
 import type {
 	DesktopConfig,
 	DesktopWallpaperServerEntry,
@@ -671,6 +673,14 @@ export interface OpenStationPublicApi {
 	 * `openstation_register_game()`.
 	 */
 	games: GamesApi;
+	/**
+	 * The deactivation feedback dialog. Published by the lazy
+	 * `deactivation-feedback[.min].js` bundle once it has loaded —
+	 * absent until then. The native Plugins app is its one in-shell
+	 * caller; the classic `plugins.php` runs the same bundle without
+	 * the shell.
+	 */
+	deactivationFeedback?: import( './deactivation-feedback' ).DeactivationFeedbackApi;
 	/** Convenience: register a widget via `os.widgets` filter. */
 	registerWidget: ( def: import( './widgets/types' ).WidgetDef ) => void;
 	/**
@@ -748,6 +758,19 @@ export interface OpenStationPublicApi {
 	 * behave like iframe windows do: every "+" yields a duplicate.
 	 */
 	openNewWindow: ( id: string, opts?: { source?: string } ) => boolean;
+	/**
+	 * Mount a chromeless admin page inside an element of a native
+	 * window's body, and return the teardown — a tab whose page is one
+	 * of wp-admin's own, shown in place rather than as a second window.
+	 * Not an iframe window: title adoption, the preview and revisions
+	 * buttons and the close-time unsaved-changes query all key off
+	 * `Window.iframe`, and an embedded page has none of them.
+	 */
+	embedAdminPage: (
+		host: HTMLElement,
+		url: string,
+		opts?: { windowId?: string },
+	) => () => void;
 	/**
 	 * Load a registered native window's bundle without opening the
 	 * window.
@@ -840,7 +863,16 @@ export interface OpenStationPublicApi {
 	fetch: (
 		input: RequestInfo | URL,
 		requestInit?: RequestInit,
-		opts?: { windowId?: string; window?: DesktopWindow; silent?: boolean },
+		opts?: {
+			windowId?: string;
+			window?: DesktopWindow;
+			silent?: boolean;
+			/**
+			 * Free-form attribution tag published on the activity bus
+			 * as `os/request-settled` (e.g. `'my-plugin/foo'`).
+			 */
+			source?: string;
+		},
 	) => Promise< Response >;
 	/**
 	 * Clone a `<template>` element's contents into a fresh
@@ -2186,6 +2218,9 @@ function init(): void {
 	if ( ! config ) {
 		return;
 	}
+	// Entries carry dependency handles; put the payloads back before
+	// any loader reads them (GH#892).
+	hydrateScriptDeps( config );
 
 	const desktopArea = document.getElementById( 'os-area' );
 	if ( ! desktopArea ) {
@@ -2730,12 +2765,20 @@ function init(): void {
 		captureAppearance: currentWorkspaceLook,
 	} );
 
-	/** The `+`: open the wizard to make a desk. */
-	const createWorkspaceWithWizard = (): void => {
+	/**
+	 * The `+`: open the wizard over the desk it is about to dress.
+	 *
+	 * The desk exists before the wizard does, so the user configures a
+	 * canvas they can see rather than one they are promised. The `+`
+	 * makes it and lands on it, and hands the id here; a programmatic
+	 * caller has done neither, so make it here instead.
+	 */
+	const createWorkspaceWithWizard = ( desktopId?: string ): void => {
 		if ( ! workspaceDeps ) {
 			return;
 		}
 		const deps = workspaceDeps;
+		const target = desktopId ?? createWorkspace( deps ).id;
 		openWorkspaceWizard( {
 			mode: 'create',
 			...wizardWorld( deps ),
@@ -2745,11 +2788,17 @@ function init(): void {
 				// would have from the old dropdown. Anything customized
 				// carries its own profile; a blank desk carries none.
 				createWorkspace( deps, {
+					desktopId: target,
 					label: result.label || undefined,
 					...( result.preset
 						? { preset: result.preset }
 						: { profile: result.profile ?? undefined } ),
 				} );
+				// The desk is already the active one, so the switch that
+				// normally triggers provisioning is a no-op — a template
+				// would land with its look and none of its windows.
+				applyWorkspaceViewForMode( deps, target );
+				provisionWorkspaceForMode( deps, target );
 			},
 		} );
 	};
@@ -2901,6 +2950,7 @@ function init(): void {
 	bindNativeUrlRemap( {
 		getSnapshot: () => osSettings.getOsSettingsSnapshot(),
 		openById: ( id, opts ) => nativeWindows.openById( id, opts ),
+		openNewById: ( id, opts ) => nativeWindows.openNewById( id, opts ),
 		adminUrl: config.adminUrl,
 	} );
 
@@ -3619,21 +3669,13 @@ function init(): void {
 			: manager.open( bugReportConfig ) );
 	}
 
-	// Admin-bar "Report a bug" button. Inline JS in
-	// `assets/js/admin-bar.js` dispatches the event; the shell
-	// answers here, decoupled from the early-running admin-bar IIFE.
-	document.addEventListener( 'os-open-bug-report', () => {
-		openBugReport();
-	} );
-
 	if ( layoutDispatcher ) {
-		// Bug Report has no tile of its own anymore — it is a row in
-		// the System menu. `openBugReport` is still the one opener,
-		// reached from there and from the `os-open-bug-report` event.
+		// Bug Report has no tile of its own — it is a row in the
+		// System menu, and `openBugReport` is its one opener.
 
-		// Exit OpenStation tile — last on the core rail so users have
-		// a discoverable in-shell way out, complementing the admin-bar
-		// "Switch to Classic Admin" toggle. Reuses the existing
+		// Exit OpenStation tile — last on the core rail, and the only
+		// way out of the shell: the admin bar carries no OpenStation
+		// nodes while the desktop is up. Reuses the existing
 		// save-openstation AJAX endpoint via the
 		// `window.openStationAdminBar` global; no new PHP surface.
 		layoutDispatcher.appendSystemTile( getExitOpenStationTileDef() );
@@ -3677,12 +3719,13 @@ function init(): void {
 			},
 		} );
 
-		// Overview tile — the same surface ArrowUp toggles. A tile for
-		// it because the gesture is undiscoverable: a shortcut nobody
-		// pressed is a feature nobody has.
+		// Workspaces tile — the same surface ArrowUp toggles. A tile
+		// for it because the gesture is undiscoverable: a shortcut
+		// nobody pressed is a feature nobody has. The id stays
+		// `os-overview`: it keys visibility overrides in Preferences.
 		layoutDispatcher.appendSystemTile( {
 			id: OVERVIEW_TILE_ID,
-			title: 'Overview',
+			title: 'Workspaces',
 			icon: OS_OVERVIEW_ICON,
 			navKind: 'control',
 			placeable: true,
@@ -3981,7 +4024,7 @@ function init(): void {
 				{ source: 'desktop-mode/default-window' },
 			);
 			if ( ! response.ok ) {
-				throw new Error( `HTTP ${ response.status }` );
+				throw await restErrorFromResponse( response );
 			}
 			const data = ( await response.json() ) as {
 				enabled: boolean;
@@ -4473,6 +4516,7 @@ function init(): void {
 		'desktop-mode/shell-toast',
 		( payload: {
 			message?: string;
+			type?: string;
 			action?: { label: string; onClick: () => void };
 			duration?: number;
 		} ) => {
@@ -4481,6 +4525,7 @@ function init(): void {
 			}
 			showToast( {
 				message: payload.message,
+				type: typeof payload.type === 'string' ? payload.type : undefined,
 				action: payload.action,
 				duration: payload.duration,
 			} );
@@ -4993,8 +5038,8 @@ function init(): void {
 		hasNotes: Boolean( config.hasNotes ),
 		host: desktopArea,
 		config,
-		onError: ( message ) => {
-			showToast( { message } );
+		onError: ( toast ) => {
+			showToast( toast );
 		},
 	} );
 
