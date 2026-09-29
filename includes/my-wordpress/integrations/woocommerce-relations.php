@@ -1169,7 +1169,7 @@ function openstation_my_wordpress_woo_order_window_title() {
 		return;
 	}
 
-	// `JSON_HEX_TAG` neutralises a `</script>` smuggled in through the billing name
+	// `JSON_HEX_TAG` neutralises a `</script>` smuggled in through the billing name.
 	$title_json = wp_json_encode(
 		openstation_my_wordpress_woo_order_title( $order ),
 		JSON_HEX_TAG | JSON_UNESCAPED_SLASHES
@@ -1177,14 +1177,9 @@ function openstation_my_wordpress_woo_order_window_title() {
 	if ( false === $title_json ) {
 		return;
 	}
-	?>
-	<script>
-		window.parent.postMessage(
-			{ type: 'os-title-change', title: <?php echo $title_json; // phpcs:ignore WordPress.Security.EscapeOutput.OutputNotEscaped -- wp_json_encode( …, JSON_HEX_TAG ) output is a JSON string literal, not markup. ?> },
-			window.location.origin
-		);
-	</script>
-	<?php
+	wp_print_inline_script_tag(
+		'window.parent.postMessage({type:"os-title-change",title:' . $title_json . '},window.location.origin);'
+	);
 }
 
 /**
