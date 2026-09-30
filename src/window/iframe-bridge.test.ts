@@ -48,7 +48,7 @@ function mockWindow( overrides: Partial< Window > = {} ): Window {
 		_closePending: false,
 		_iframeCloseTimeout: null,
 		_hasExplicitTitle: false,
-		config: { titleFromPage: false, title: '' } as any,
+		config: { titleFromPage: false, title: '' } as Window[ 'config' ],
 		// Activity surface — the bridge brackets iframe requests onto
 		// the title-bar status ring, and resets on every new document.
 		_markActivityStart: vi.fn(),
@@ -158,7 +158,7 @@ describe( 'iframe-bridge: os-ready', () => {
 		} );
 		const win = mockWindow( {
 			iframe,
-			config: { titleFromPage: true, title: 'Order #1 · John Smith' } as any,
+			config: { titleFromPage: true, title: 'Order #1 · John Smith' } as Window[ 'config' ],
 		} );
 
 		// The window explicitly changes its title.
